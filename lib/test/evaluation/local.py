@@ -20,7 +20,8 @@ def local_env_settings():
     settings.prj_dir = '/root/TrackingMamba'
     settings.result_plot_path = '/home/admz/projects/pythonprojects/TrackingMamba/output/test/result_plots'
     settings.results_path = '/home/admz/projects/pythonprojects/TrackingMamba/output/test/tracking_results'    # Where to store tracking results
-    settings.save_dir = '/home/admz/projects/pythonprojects/TrackingMamba/output'
+    #settings.save_dir = '/home/admz/projects/pythonprojects/TrackingMamba/output'
+    settings.save_dir = '/root/TrackingMamba/output'
     settings.segmentation_path = '/home/admz/projects/pythonprojects/TrackingMamba/output/test/segmentation_results'
     settings.tc128_path = '/home/admz/projects/pythonprojects/TrackingMamba/data/TC128'
     settings.tn_packed_results_path = ''
