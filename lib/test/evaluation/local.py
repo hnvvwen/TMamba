@@ -17,11 +17,11 @@ def local_env_settings():
     settings.network_path = '/root/TMamba/output/test/networks'    # Where tracking networks are stored.
     settings.nfs_path = '/root/TMamba/data/nfs'
     settings.otb_path = '/root/TMamba/data/otb'
-    settings.prj_dir = '/root/TrackingMamba'
+    settings.prj_dir = '/root/TMamba'
     settings.result_plot_path = '/root/TMamba/output/test/result_plots'
     settings.results_path = '/root/TMamba/output/test/tracking_results'    # Where to store tracking results
     #settings.save_dir = '/home/admz/projects/pythonprojects/TrackingMamba/output'
-    settings.save_dir = '/root/TrackingMamba/output'
+    settings.save_dir = '/root/TMamba/output'
     settings.segmentation_path = '/root/TMamba/output/test/segmentation_results'
     settings.tc128_path = '/root/TMamba/data/TC128'
     settings.tn_packed_results_path = ''
