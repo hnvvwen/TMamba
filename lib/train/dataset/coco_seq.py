@@ -48,6 +48,7 @@ class MSCOCOSeq(BaseVideoDataset):
 
         self.img_pth = os.path.join(root, 'images/{}{}/'.format(split, version))
         self.anno_path = os.path.join(root, 'annotations/instances_{}{}.json'.format(split, version))
+        
 
         # Load the COCO set.
         self.coco_set = COCO(self.anno_path)

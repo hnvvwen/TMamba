@@ -21,8 +21,8 @@ def parameters(yaml_name: str):
     params.search_size = cfg.TEST.SEARCH_SIZE
 
     # Network checkpoint path
-    # params.checkpoint = os.path.join(save_dir, "checkpoints/train/trackingmamba/%s/TrackingMamba_ep%04d.pth.tar" %
-    #                                  (yaml_name, cfg.TEST.EPOCH))
+#    params.checkpoint = os.path.join(save_dir, "checkpoints/train/trackingmamba/%s/TrackingMamba_ep%04d.pth.tar" %
+#                                       (yaml_name, cfg.TEST.EPOCH))
     params.checkpoint = os.path.join(save_dir, "checkpoints/train/%s/TrackingMamba_ep%04d.pth.tar" %
                                      (yaml_name, cfg.TEST.EPOCH))
 

@@ -11,7 +11,7 @@ from lib.test.evaluation.running import run_dataset
 from lib.test.evaluation.tracker import Tracker
 
 
-def run_tracker(tracker_name, tracker_param, run_id=None, dataset_name='otmj', sequence=None, debug=0, threads=0,
+def run_tracker(tracker_name, tracker_param, run_id=None, dataset_name='uav', sequence=None, debug=0, threads=0,
                 num_gpus=8):
     """Run tracker on sequence or dataset.
     args:

@@ -32,10 +32,21 @@ try:
     from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
-    
+#new
+try:
+    from causal_conv1d import causal_conv1d_fn, causal_conv1d_update
+except ImportError:
+    causal_conv1d_fn, causal_conv1d_update = None, None
 
-    
-    
+from lib.models.trackingmamba.selective_scan_interface import selective_scan_fn, mamba_inner_fn   
+
+import torch.nn.functional as F
+#from lib.models.trackingmamba.backbone import build_backbone,Backbone
+#from lib.utils.misc import (NestedTensor, nested_tensor_from_tensor_list,
+#                       accuracy, get_world_size, interpolate,
+#                       is_dist_avail_and_initialized, inverse_sigmoid)
+#from timm.models.layers import trunc_normal_, DropPath, LayerNorm2d
+
 
 
 __all__ = [
@@ -230,6 +241,150 @@ def segm_init_weights(m):
         nn.init.zeros_(m.bias)
         nn.init.ones_(m.weight)
 
+#####new
+class MultiScaleCausalConv(nn.Module):
+    def __init__(self, dim, kernel_sizes=[3,5,7], activation=nn.SiLU()):
+        super().__init__()
+        self.dim = dim
+        self.kernel_sizes = kernel_sizes
+        self.activation = activation
+
+        # 第一层多尺度因果卷积
+        self.convs1 = nn.ModuleList([
+            nn.Conv1d(dim, dim, kernel_size=k, groups=dim, padding=0) for k in kernel_sizes
+        ])
+        self.weights1 = nn.Parameter(torch.ones(len(kernel_sizes)))
+
+        # 第二层多尺度因果卷积
+        self.convs2 = nn.ModuleList([
+            nn.Conv1d(dim, dim, kernel_size=k, groups=dim, padding=0) for k in kernel_sizes
+        ])
+        self.weights2 = nn.Parameter(torch.ones(len(kernel_sizes)))
+
+    def forward(self, x):
+        # x: (batch, dim, length)
+
+        # 第一层多尺度卷积
+        outs1 = []
+        for conv, k in zip(self.convs1, self.kernel_sizes):
+            pad = (k - 1, 0)
+            x_padded = F.pad(x, pad)
+            out = conv(x_padded)
+            outs1.append(out)
+        stacked1 = torch.stack(outs1, dim=0)
+        weight1 = F.softmax(self.weights1, dim=0).view(-1,1,1,1)
+        out1 = (stacked1 * weight1).sum(dim=0)
+        out1 = self.activation(out1)
+
+        # 第二层多尺度卷积（对第一层结果做同样处理）
+        outs2 = []
+        for conv, k in zip(self.convs2, self.kernel_sizes):
+            pad = (k - 1, 0)
+            out1_padded = F.pad(out1, pad)
+            out = conv(out1_padded)
+            outs2.append(out)
+        stacked2 = torch.stack(outs2, dim=0)
+        weight2 = F.softmax(self.weights2, dim=0).view(-1,1,1,1)
+        out2 = (stacked2 * weight2).sum(dim=0)
+        out2 = self.activation(out2)
+
+        return out2
+#class MultiScaleCausalConv(nn.Module):
+#    def __init__(self, dim, kernel_sizes=[3, 5, 7], activation=nn.SiLU()):
+#        super().__init__()
+#        self.dim = dim
+#        self.kernel_sizes = kernel_sizes
+#        self.activation = activation
+#
+#        # 第一层多尺度普通卷积，padding保证输出长度不变 (padding = (k-1)//2)
+#        self.convs1 = nn.ModuleList([
+#            nn.Conv1d(dim, dim, kernel_size=k, padding=(k - 1) // 2, groups=dim) for k in kernel_sizes
+#        ])
+#        self.weights1 = nn.Parameter(torch.ones(len(kernel_sizes)))
+#
+#        # 第二层多尺度普通卷积
+#        self.convs2 = nn.ModuleList([
+#            nn.Conv1d(dim, dim, kernel_size=k, padding=(k - 1) // 2, groups=dim) for k in kernel_sizes
+#        ])
+#        self.weights2 = nn.Parameter(torch.ones(len(kernel_sizes)))
+#
+#    def forward(self, x):
+#        # x: (batch, dim, length)
+#
+#        # 第一层多尺度卷积
+#        outs1 = []
+#        for conv in self.convs1:
+#            out = conv(x)
+#            outs1.append(out)
+#        stacked1 = torch.stack(outs1, dim=0)  # (n_kernels, batch, dim, length)
+#        weight1 = F.softmax(self.weights1, dim=0).view(-1, 1, 1, 1)
+#        out1 = (stacked1 * weight1).sum(dim=0)
+#        out1 = self.activation(out1)
+#
+#        # 第二层多尺度卷积
+#        outs2 = []
+#        for conv in self.convs2:
+#            out = conv(out1)
+#            outs2.append(out)
+#        stacked2 = torch.stack(outs2, dim=0)
+#        weight2 = F.softmax(self.weights2, dim=0).view(-1, 1, 1, 1)
+#        out2 = (stacked2 * weight2).sum(dim=0)
+#        out2 = self.activation(out2)
+#
+#        return out2
+class Attention(nn.Module):
+
+    def __init__(
+            self,
+            dim,
+            num_heads=8,
+            qkv_bias=False,
+            qk_norm=False,
+            attn_drop=0.,
+            proj_drop=0.,
+            norm_layer=nn.LayerNorm,
+    ):
+        super().__init__()
+        assert dim % num_heads == 0
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.fused_attn = True
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
+
+        if self.fused_attn:
+            x = F.scaled_dot_product_attention(
+             q, k, v,
+                dropout_p=self.attn_drop.p,
+            )
+        else:
+            q = q * self.scale
+            attn = q @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+
+#####new
+
 
 class VisionMamba(nn.Module):
     def __init__(self, 
@@ -265,6 +420,8 @@ class VisionMamba(nn.Module):
                  init_layer_scale=None,
                  use_double_cls_token=False,
                  use_middle_cls_token=False,
+                 #new
+
                  **kwargs):
         factory_kwargs = {"device": device, "dtype": dtype}
         # add factory_kwargs into kwargs
@@ -286,12 +443,78 @@ class VisionMamba(nn.Module):
 
         # pretrain parameters
         self.num_classes = num_classes
-        self.d_model = self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.d_model = self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models  192
 
         self.patch_embed = PatchEmbed(
             img_size=img_size, patch_size=patch_size, stride=stride, in_chans=channels, embed_dim=embed_dim)
         num_patches = self.patch_embed.num_patches
 
+
+##new
+        
+        self.d_inner = int(1 * self.d_model)  #384
+        self.conv1d = nn.Conv1d(
+            in_channels=self.d_inner,
+            out_channels=self.d_inner,
+            bias=True,
+            kernel_size=4,
+            groups=self.d_inner,
+            padding=4 - 1,
+            **factory_kwargs,
+        )
+        bias=False,
+        self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
+        self.activation = "silu"
+        dt_rank="auto"
+        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
+        d_state=16
+        self.d_state = d_state
+        self.x_proj = nn.Linear(
+            self.d_inner, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
+        )
+        self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
+        
+        A = repeat(
+            torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
+            "n -> d n",
+            d=self.d_inner,
+        ).contiguous()
+        A_log = torch.log(A)  # Keep A_log in fp32  状态空间参数化
+
+        self.A_log = nn.Parameter(A_log)
+        self.D = nn.Parameter(torch.ones(self.d_inner, device=device))  # Keep in fp32
+        self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
+        self.multi_scale_conv =  MultiScaleCausalConv(384)
+#        num_queries=100
+#        self.query_embed = nn.Embedding(num_queries, embed_dim*2) #num_queries在coco中常设为100
+#        self.num_feature_levels = 4 # 决定了模型会使用几个不同分辨率的特征图（如 P3、P4、P5、P6...）来进行多尺度可变形注意力。
+#        self.input_proj = nn.ModuleList([
+#                nn.Sequential(
+#                    nn.Conv2d(backbone.num_channels[0], hidden_dim, kernel_size=1),
+#                    nn.GroupNorm(32, hidden_dim),
+#                )])
+#        self.backbone = backbone
+
+#普通attention
+#        self.mixer = Attention(
+#            embed_dim,
+#            num_heads=8,
+#            qkv_bias=False,
+#            qk_norm=False,
+#            attn_drop=0.,
+#            proj_drop=0.,
+#            norm_layer=nn.LayerNorm,
+#            )
+#        layer_scale=None
+#        use_layer_scale = layer_scale is not None and type(layer_scale) in [int, float]
+#        self.gamma_1 = nn.Parameter(layer_scale * torch.ones(embed_dim))  if use_layer_scale else 1
+#        drop_path=0.
+#        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+#        norm_layer=nn.LayerNorm
+#        self.norm1 = norm_layer(embed_dim)
+##new 
+
+        
         if if_cls_token:
             if use_double_cls_token:
                 self.cls_token_head = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
@@ -460,10 +683,68 @@ class VisionMamba(nn.Module):
         if self.flip_img_sequences_ratio > 0 and (self.flip_img_sequences_ratio - random.random()) > 1e-5:        # False
             x = x.flip([1])
             if_flip_img_sequences = True
+#new   
+        A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
+        batch, seqlen, dim = x.shape
+        conv_state, ssm_state = None, None
+        if inference_params is not None:  #在推理（如增量生成）阶段，如果当前 token 不是序列的第一个 token（seqlen_offset > 0），则直接调用 step() 处理当前 token，而不是走完整个 forward 路径，提高效率。
+            conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
+            if inference_params.seqlen_offset > 0:
+                # The states are updated inplace
+                out, _, _ = self.step(x, conv_state, ssm_state)
+                return out
+        assert self.activation in ["silu", "swish"]
+        #print("x shape:", x.shape)#x shape: torch.Size([100, 320, 384])
 
+        #print("original weight shape:", self.conv1d.weight.shape) #original weight shape: torch.Size([768, 1, 4])
+        #print("rearranged weight shape:", rearrange(self.conv1d.weight, "d 1 w -> d w").shape)#rearranged weight shape: torch.Size([768, 4])
+        x = x.permute(0, 2, 1)  # 从 (B, L, D) -> (B, D, L)
+        z1=x
+        
+#        x = causal_conv1d_fn(
+#                x=x,
+#                weight=rearrange(self.conv1d.weight, "d 1 w -> d w"),
+#                bias=self.conv1d.bias,
+#                activation=self.activation,
+#            )
+        x = self.multi_scale_conv(x)
+        #print("x_con",x.shape)
+        x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d) 状态空间参数构造（输入相关）
+        dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
+        dt = self.dt_proj.weight @ dt.t()
+        dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
+        B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        assert self.activation in ["silu", "swish"]
+        
+        #print("z before permute:", z.shape)  # torch.Size([B, L, D]) ?
+        
+        
+        #print("z1 after permute:", z1.shape)
+        #print("x after shape",x.shape)
+        y = selective_scan_fn(
+            x,
+            dt,
+            A,
+            B,
+            C,
+            self.D.float(),
+            z=z1,
+            delta_bias=self.dt_proj.bias.float(),
+            delta_softplus=True,
+            return_last_state=ssm_state is not None,
+        )
+        y = rearrange(y, "b d l -> b l d")  
+        x = self.out_proj(y)                
+
+        
+#new
+    
         # mamba impl
         residual = None
         hidden_states = x
+        
+        
         if not self.if_bidirectional:                                 # True
             for layer in self.layers:
                 if if_flip_img_sequences and self.if_rope:            # False
@@ -502,7 +783,9 @@ class VisionMamba(nn.Module):
                 )
                 hidden_states = hidden_states_f + hidden_states_b.flip([1])
                 residual = residual_f + residual_b.flip([1])
-      
+            
+        
+          
         if not self.fused_add_norm:         #False
             if residual is None:
                 residual = hidden_states
@@ -521,7 +804,69 @@ class VisionMamba(nn.Module):
                 prenorm=False,
                 residual_in_fp32=self.residual_in_fp32,
             )
+###new
+         
+#        backbone =Backbone('resnet50', train_backbone=False, return_interm_layers=True, dilation=True)
+#        samples = nested_tensor_from_tensor_list(samples)
+#        features, pos = self.backbone(samples)
+#        srcs = []
+#        masks = []
+#        for l, feat in enumerate(features):
+#            src, mask = feat.decompose()
+#            srcs.append(self.input_proj[l](src))
+#            masks.append(mask)
+#            assert mask is not None
+#            
+#        if self.num_feature_levels > len(srcs):
+#            _len_srcs = len(srcs)
+#            for l in range(_len_srcs, self.num_feature_levels):
+#                if l == _len_srcs:
+#                    src = self.input_proj[l](features[-1].tensors)
+#                else:
+#                    src = self.input_proj[l](srcs[-1])
+#                m = samples.mask
+#                mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
+#                pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
+#                srcs.append(src)
+#                masks.append(mask)
+#                pos.append(pos_l)
+#         query_embeds = None
+#         query_embeds = self.query_embed.weight
+#         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, query_embeds)
+#
+#        outputs_classes = []
+#        outputs_coords = []
+#        for lvl in range(hs.shape[0]):
+#            if lvl == 0:
+#                reference = init_reference
+#            else:
+#                reference = inter_references[lvl - 1]
+#            reference = inverse_sigmoid(reference)
+#            outputs_class = self.class_embed[lvl](hs[lvl])
+#            tmp = self.bbox_embed[lvl](hs[lvl])
+#            if reference.shape[-1] == 4:
+#                tmp += reference
+#            else:
+#                assert reference.shape[-1] == 2
+#                tmp[..., :2] += reference
+#            outputs_coord = tmp.sigmoid()
+#            outputs_classes.append(outputs_class)
+#            outputs_coords.append(outputs_coord)
+#        outputs_class = torch.stack(outputs_classes)
+#        outputs_coord = torch.stack(outputs_coords)
+#
+#        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+#        
+#        out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+#
+#        
+#        enc_outputs_coord = enc_outputs_coord_unact.sigmoid()
+#        out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
 
+
+
+###new
+        #hidden_states = hidden_states + self.drop_path(self.gamma_1 * self.mixer(self.norm1(hidden_states))) 
         # return only cls token if it exists
         if self.if_cls_token:          #False
             if self.use_double_cls_token:
@@ -554,6 +899,35 @@ class VisionMamba(nn.Module):
             x = x.max(dim=1)[0]
         return x
 
+#new
+    def _get_states_from_cache(self, inference_params, batch_size, initialize_states=False):
+        assert self.layer_idx is not None
+        if self.layer_idx not in inference_params.key_value_memory_dict:
+            batch_shape = (batch_size,)
+            conv_state = torch.zeros(
+                batch_size,
+                self.d_model * self.expand,
+                self.d_conv,
+                device=self.conv1d.weight.device,
+                dtype=self.conv1d.weight.dtype,
+            )
+            ssm_state = torch.zeros(
+                batch_size,
+                self.d_model * self.expand,
+                self.d_state,
+                device=self.dt_proj.weight.device,
+                dtype=self.dt_proj.weight.dtype,
+                # dtype=torch.float32,
+            )
+            inference_params.key_value_memory_dict[self.layer_idx] = (conv_state, ssm_state)
+        else:
+            conv_state, ssm_state = inference_params.key_value_memory_dict[self.layer_idx]
+            # TODO: What if batch size changes between generation, and we reuse the same states?
+            if initialize_states:
+                conv_state.zero_()
+                ssm_state.zero_()
+        return conv_state, ssm_state    
+#new
 
 @register_model
 def vim_tiny_patch16_224_bimambav2_final_pool_mean_abs_pos_embed_with_midclstok_div2(pretrained=False, **kwargs):

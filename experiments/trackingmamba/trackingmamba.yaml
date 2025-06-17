@@ -19,24 +19,24 @@ DATA:
     FACTOR: 2.0
     SCALE_JITTER: 0
     SIZE: 128
-#  TRAIN:
-#    DATASETS_NAME:
-#      - GOT10K_train_full
-#    DATASETS_RATIO:
-#      - 1
-#    SAMPLE_PER_EPOCH: 60000
+  TRAIN:
+    DATASETS_NAME:
+      - GOT10K_train_full
+    DATASETS_RATIO:
+      - 1
+    SAMPLE_PER_EPOCH: 60000
 
   TRAIN:
     DATASETS_NAME:
     - LASOT
     - GOT10K_vottrain
     - COCO17
-    - TRACKINGNET
+    #- TRACKINGNET
     DATASETS_RATIO:
     - 1
     - 1
     - 1
-    - 1
+    #- 1
     SAMPLE_PER_EPOCH: 60000
   VAL:
     DATASETS_NAME:
