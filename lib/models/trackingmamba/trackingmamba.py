@@ -103,6 +103,7 @@ def build_trackingmamba(cfg, training=True):
         pretrained = os.path.join(pretrained_path, cfg.MODEL.PRETRAIN_FILE)
     else:
         pretrained = ''
+    
 
     backbone = create_model( model_name= cfg.MODEL.BACKBONE.TYPE, pretrained= pretrained, num_classes=1000,
             drop_rate=0.0, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE, drop_block_rate=None, img_size=256

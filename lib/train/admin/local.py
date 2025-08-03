@@ -8,7 +8,7 @@ class EnvironmentSettings:
         self.got10k_val_dir = '/root/autodl-tmp/GOT-10k/val'
         self.lasot_lmdb_dir = '/home/zhouliyao/projects/pythonprojects/OSMTrack-main/data/lasot_lmdb'
         self.got10k_lmdb_dir = '/home/zhouliyao/projects/pythonprojects/OSMTrack-main/data/got10k_lmdb'
-        self.trackingnet_dir = '/home/zhouliyao/projects/datasets/trackingnet/'
+        self.trackingnet_dir = '/root/autodl-tmp/trackingnet/'
         self.trackingnet_lmdb_dir = '/home/zhouliyao/projects/pythonprojects/OSMTrack-main/data/trackingnet_lmdb'
         self.coco_dir = '/root/autodl-tmp/coco/'
         self.coco_lmdb_dir = '/home/zhouliyao/projects/pythonprojects/OSMTrack-main/data/coco_lmdb'

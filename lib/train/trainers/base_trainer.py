@@ -189,8 +189,9 @@ class BaseTrainer:
                 checkpoint_path = os.path.expanduser(checkpoint)
         else:
             raise TypeError
-
-        # Load network
+    
+        # Load network  
+        print(checkpoint_path)#new
         checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
 
         assert net_type == checkpoint_dict['net_type'], 'Network is not of correct type.'
@@ -209,6 +210,8 @@ class BaseTrainer:
                 continue
             if key == 'net':
                 net.load_state_dict(checkpoint_dict[key])
+                 #net.load_state_dict(checkpoint_dict[key], strict=False)#更改的
+
             elif key == 'optimizer':
                 self.optimizer.load_state_dict(checkpoint_dict[key])
             else:

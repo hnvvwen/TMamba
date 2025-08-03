@@ -31,12 +31,12 @@ DATA:
     - LASOT
     - GOT10K_vottrain
     - COCO17
-    #- TRACKINGNET
+    - TRACKINGNET
     DATASETS_RATIO:
     - 1
     - 1
     - 1
-    #- 1
+    - 1
     SAMPLE_PER_EPOCH: 60000
   VAL:
     DATASETS_NAME:
@@ -46,6 +46,7 @@ DATA:
     SAMPLE_PER_EPOCH: 10000
 MODEL:
   PRETRAIN_FILE: "hustvlVim-small-midclstok+/vim_s_midclstok_80p5acc.pth"
+  #PRETRAIN_FILE: "" #更改的
   EXTRA_MERGER: False
   RETURN_INTER: False
   BACKBONE:
@@ -74,7 +75,7 @@ TRAIN:
   WEIGHT_DECAY: 0.0001
   AMP: False
 TEST:
-  EPOCH: 297
+  EPOCH: 300
   SEARCH_FACTOR: 4.0
   SEARCH_SIZE: 256
   TEMPLATE_FACTOR: 2.0
